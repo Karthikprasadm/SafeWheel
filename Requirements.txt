@@ -1,7 +1,8 @@
-imutils==0.5.3
-opencv-contrib-python==4.2.0.34
-opencv-python==4.2.0.34
-dlib==19.20.0
-numpy==1.22.0
-cmake==3.18.0
-scipy==1.5.1
+imutils==0.5.4
+opencv-contrib-python==4.10.0.84
+# Use prebuilt dlib wheels on Windows; standard dlib elsewhere
+dlib-bin==19.24.6; platform_system=="Windows"
+dlib==19.24.6; platform_system!="Windows"
+numpy==1.26.4
+cmake==3.29.6
+scipy==1.11.4
