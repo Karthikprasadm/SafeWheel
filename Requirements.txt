@@ -5,4 +5,5 @@ dlib-bin==19.24.6; platform_system=="Windows"
 dlib==19.24.6; platform_system!="Windows"
 numpy==1.26.4
 cmake==3.29.6
-scipy==1.11.4
+scipy==1.16.2
+mediapipe==0.10.21
