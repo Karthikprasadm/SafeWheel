@@ -1,140 +1,147 @@
 # How to Run & Use SafeWheel
 
-This quick guide walks you through installing dependencies, launching the driver-drowsiness detector, and using its real-time controls effectively.
+This guide is a practical, copy/paste-friendly companion to `README.md`. Follow it from top to bottom when setting up a new machine or handing SafeWheel to another teammate.
 
 ---
 
-## 1. Prerequisites
-- Windows with a working webcam (default target platform).
-- Python 3.12.x installed (matches the repo’s virtual environment).
-- Git LFS (already configured for the dlib landmark model).
+## 1. Verify Requirements
+| Item | Minimum | Notes |
+| --- | --- | --- |
+| OS | Windows 10/11 | Linux/macOS work if you can install `dlib` from source. |
+| Python | 3.12.x | Matches the committed `.venv`. |
+| Camera | 640×480 @ 20 FPS | USB or built-in webcam. |
+| Git LFS | Enabled | Required for the dlib landmark model. |
 
-Verify Python:
 ```powershell
-python --version
-# Expected: Python 3.12.x
+python --version     # expect 3.12.x
+git lfs install
 ```
 
 ---
 
-## 2. Install Dependencies
-From the repository root (`Driver-Drowsiness-Detection`):
-
+## 2. Create the Virtual Environment
+Run these once per clone (from repo root `Driver-Drowsiness-Detection`):
 ```powershell
 python -m venv .venv
-.venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1   # if blocked, run Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 pip install -r Requirements.txt
 ```
+Key packages installed: OpenCV, dlib-bin, mediapipe, numpy/scipy, websockets, pandas, matplotlib.
 
-> Tip: If activating fails in PowerShell, ensure script execution is allowed (`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`).
+> Forgot to activate? Prefix commands with `.\.venv\Scripts\python.exe` (still works without touching execution policy).
 
 ---
 
-## 3. Launch the Application
-With the virtual environment activated:
-
+## 3. Launch Scenarios
+Base command (with venv active):
 ```powershell
 python "Driver Drowsiness Detection.py"
 ```
+SafeWheel auto-probes camera indices 0→2, resizes frames to 960×540, and shows the overlay window.
 
-Startup behavior:
-- Automatically tries camera indices 0 → 2.
-- Resizes input frames to 960×540 by default (edit `frame_width`/`frame_height` if needed).
-- Loads the dlib 68-point landmark model from `dlib_shape_predictor/`.
+| Scenario | Command |
+| --- | --- |
+| Specify cameras | `python "Driver Drowsiness Detection.py" --cameras 2 4` |
+| Replay a clip (loops) | `python "Driver Drowsiness Detection.py" --video data\drive.mp4` |
+| Prefer the video feed first | add `--prefer-video` |
+| Stop looping video | add `--no-loop-video` |
+| Enable telemetry | `python "Driver Drowsiness Detection.py" --api-port 5001 --ws-port 5002` |
+| Poll ambient sensors | `python "Driver Drowsiness Detection.py" --sensor-http http://localhost:5055/env` |
+| Longer drift window / custom summary log | `python "Driver Drowsiness Detection.py" --stats-window 180 --stats-log C:\logs\session_metrics.jsonl` |
 
-### Alternate inputs & telemetry
-- Pick cameras explicitly: `python "Driver Drowsiness Detection.py" --cameras 1 2`
-- Replay a recorded drive: `python "Driver Drowsiness Detection.py" --video data\drive.mp4` (loops by default)
-- Start directly from the video feed: add `--prefer-video`; stop looping with `--no-loop-video`
-- Expose status over HTTP/WebSocket: `python "Driver Drowsiness Detection.py" --api-port 5001 --ws-port 5002`
-  - HTTP: `GET http://localhost:5001/status`
-  - WebSocket: subscribe to `ws://localhost:5002/`
-- Feed ambient sensors: supply an HTTP endpoint that returns `{"ambient_light": <lux>, "cabin_temp": <°C>}` via `--sensor-http http://localhost:5055/env`
+The console prints `[INFO]`/`[WARN]` messages if the camera or sensor endpoint fails. Fix issues there before looking elsewhere.
 
 ---
 
-## 4. Live Controls (Hotkeys)
+## 4. Live Controls & Status Bar
 | Key | Action |
 | --- | --- |
-| `q` | Quit the application |
-| `o` | Toggle all overlays (status, boxes, charts) |
-| `k` | Toggle landmark points (must be ON to see pose lines/text) |
-| `j` | Toggle landmark IDs |
-| `p` | Toggle pose overlay (requires `k` ON to visualize) |
-| `c` | Start/stop calibration (~6s neutral face) |
-| `1` | Performance preset: speed (lower accuracy, higher FPS) |
-| `2` | Preset: balanced (default) |
-| `3` | Preset: quality (higher accuracy, lower FPS) |
-| `[` / `]` | Cycle backward/forward through the configured camera indices |
-| `v` | Toggle between live camera and loaded video file (when `--video` supplied) |
+| `q` | Quit the app. |
+| `o` | Master overlay toggle (hides everything except alert banner). |
+| `k` / `j` | Landmark points / IDs. Pose lines render only when points are ON. |
+| `p` | Pose overlay (blue/red orientation lines). |
+| `[` / `]` | Previous/next camera from the configured list. |
+| `v` | Switch between live camera and `--video` source. |
+| `1 / 2 / 3` | Performance presets (speed / balanced / quality). |
+| `c` | Start/stop calibration (~6 s neutral face). |
 
-Status text at the bottom of the window confirms which overlays/presets are active.
+Status bar (bottom-left) shows overlay state, calibration flag, perf mode, and active input (`CAM 0`, `VIDEO clip.mp4`). If sensors are enabled you’ll also see `Env: 42lx/29.1C`.
 
 ---
 
-## 5. Calibration Workflow
-1. Press `c` to start.
-2. Hold a neutral expression for ~6 seconds; the banner shows the countdown.
-3. Baselines (`baseline_ear`, `baseline_mar`) persist in `calibration.json`.
-4. Press `c` again to abort early if needed.
+## 5. Calibration & Drift
+1. Press `c`; hold a neutral expression for 6 seconds (progress text appears).
+2. Baselines write to `calibration.json` and immediately apply to EAR/MAR thresholds.
+3. A rolling 120 s median monitors for drift. If medians move >12 % from the saved baseline you’ll see a yellow banner and `calibration_advice.log` gains a hint to recalibrate.
+4. Session summaries append to `session_metrics.jsonl` with averages, drift count, and environment stats when you exit.
 
-These baselines adjust thresholds to your face, reducing false positives.
-
----
-
-## 6. Adaptive Drift & Environment Context
-- The app monitors a 120 s rolling median of EAR/MAR. If it drifts >12 % from your stored baseline, an on-screen banner plus `calibration_advice.log` remind you to recalibrate.
-- Optional ambient-light / cabin-temperature readings (via `--sensor-http`) tweak sensitivity on the fly: darker cabins require longer eye closures; hotter cabins make yawns contribute more to debt.
-- When you exit, a snapshot of session averages, drift count, and environment stats is appended to `session_metrics.jsonl`.
+Tips:
+- Recalibrate whenever lighting changes drastically (e.g., day → night) or if the “Calibrated” text disappears after editing the JSON manually.
+- You can delete `calibration.json` to return to stock thresholds.
 
 ---
 
-## 7. Reading the UI
-- **Face counter (top left)**: number of faces detected.
-- **MAR / Score / Tilt**: live metrics used for scoring.
-- **Debt bar**: shows cumulative fatigue (0–100). Fills when risk scores exceed the alert threshold and decays otherwise.
-- **Alert banner**: “DROWSINESS ALERT!” appears with audible alarms when the combined score crosses the threshold.
+## 6. Environment Sensors & Telemetry
+### Sensors
+Provide an HTTP endpoint returning JSON:
+```json
+{ "ambient_light": 38.5, "cabin_temp": 30.2 }
+```
+Launch with `--sensor-http http://<device>/env`. The app polls every 15 s (configurable via `--sensor-interval`). Low light increases the required closed-eye frames; high cabin temps lower the yawning threshold.
+
+### Telemetry API / WebSocket
+```powershell
+python "Driver Drowsiness Detection.py" --api-port 5001 --ws-port 5002
+```
+- `GET http://localhost:5001/status` → JSON snapshot (`score`, `perclos`, `debt_score`, `faces_detected`, `ambient_light`, etc.).
+- `ws://localhost:5002/` pushes the same payload whenever metrics update (great for dashboards or fleet monitoring).
 
 ---
 
-## 8. Logging & Incidents
-- `events_log.csv`: records eyes-closed events, yawns, and score-triggered alerts with timestamps.
-- `incidents/`: each alert triggers an `incident_YYYYMMDD_HHMMSS/` folder containing:
-  - `snapshot.jpg` — still frame at alert time.
-  - `clip.mp4` — ~10-second rolling video buffer.
-- Generate a quick report with charts + embedded videos:
-  ```powershell
-  python tools/review_session.py --log events_log.csv --incidents incidents --output reports --open
-  ```
-  This produces `reports/session_metrics.png` plus an HTML summary referencing your incident media.
+## 7. UI Elements
+- **Face counter** (top-left) – active faces. Only the largest face drives scoring.
+- **Score readout** – `Score`, `PERCLOS`, `YPM`, `Tilt`, plus “Calibrated” label if baselines exist.
+- **Debt bar** – 0–100 scale. ≥80 triggers repeated warning beeps; 100 triggers repeated 10 s alarms until it drops.
+- **Alert banner** – “DROWSINESS ALERT!” draws even when overlays are off. Incident media is saved exactly once per continuous alert.
 
-Ensure `incidents/`, `events_log.csv`, and `calibration.json` are ignored in Git (already covered in `.gitignore`).
+---
+
+## 8. Logging, Incidents & Reports
+| Artifact | Location | Notes |
+| --- | --- | --- |
+| Event log | `events_log.csv` | Header: `timestamp,event,ear,mar,head_tilt_deg,faces,score,perclos,yawns_per_min,debt_score,ambient_light,cabin_temp`. Appends every run. If schema changes the previous file is renamed `.legacy`. |
+| Incidents | `incidents/incident_YYYYMMDD_HHMMSS/` | Contains `snapshot.jpg` and `clip.mp4` (~10 s). |
+| Session summary | `session_metrics.jsonl` | One JSON line per app exit with averages and drift stats. |
+| Analytics output | `reports/` | Generated by `tools/review_session.py` (chart + HTML gallery). |
+
+Generate a report at any time:
+```powershell
+python tools\review_session.py --log events_log.csv --incidents incidents --output reports --open
+```
+Open the HTML report to review charts and incident media without relaunching the app.
 
 ---
 
 ## 9. Health Checks
-- **Quick dependency smoke test** (verifies OpenCV/dlib/numpy stack):
-  ```powershell
-  python smoke_test.py
-  ```
-- **Analytics/report sanity check** (ensures `tools/review_session.py` can read your logs/incidents):
-  ```powershell
-  python tools\review_session.py --log events_log.csv --incidents incidents --output reports --open
-  ```
-  Inspect the generated chart/HTML in `reports/`.
+| Check | Command | Purpose |
+| --- | --- | --- |
+| Dependency smoke test | `python smoke_test.py` | Ensures OpenCV / numpy / dlib / mediapipe import cleanly. |
+| Analytics sanity check | `python tools\review_session.py --log events_log.csv --incidents incidents --output reports --open` | Confirms pandas/matplotlib can parse the latest logs and incidents. |
+| Camera free? | `Get-Process python | Stop-Process -Force` | Releases any orphaned python processes still holding the webcam. |
+
+Run these when onboarding a new machine or before demos.
 
 ---
 
 ## 10. Troubleshooting
-- **No pose overlay**: Press `k` to enable landmark points; pose lines only render when landmarks are visible.
-- **No faces detected**: Improve lighting, keep your face centered, or check if another app is using the camera.
-- **High CPU usage / lag**: Drop to preset `1`, reduce resolution, and turn off pose/IDs.
-- **Camera busy**: Close other camera apps, then press `[`/`]` to retry other indices or launch with `--cameras <idx...>`.
-- **Need to regression-test without a webcam**: pass `--video path\to\clip.mp4 --prefer-video` to replay files instead of camera input.
-- **Remote monitoring**: ensure `--api-port`/`--ws-port` are open on the firewall; visit `/status` to verify telemetry JSON.
-- **Sensor endpoint errors**: the app silently retries; check the console and ensure your `--sensor-http` target returns JSON with `ambient_light` and/or `cabin_temp`.
+- **PowerShell blocks Activate.ps1** → Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, reopen PowerShell, activate again. Alternatively use `cmd.exe` with `.\.venv\Scripts\activate.bat`.
+- **“No working camera found”** → close other apps, unplug/replug USB camera, optionally reduce `--cameras` to the exact index used by Windows.
+- **Pose overlay missing** → press `k`. Pose lines require landmarks to be visible.
+- **High CPU / low FPS** → switch to preset `1`, lower frame resolution, disable pose (`p`) and IDs (`j`), or run from a more powerful machine.
+- **Telemetry unreachable** → ensure Windows Firewall allows the chosen ports, check console for binding errors.
+- **Sensor endpoint errors** → console prints `[WARN] failed to start sensor poller`. Hit the URL in a browser and confirm it returns valid JSON numbers.
+- **Debt beeps not audible** → speakers muted? When Winsound fails, SafeWheel falls back to console bell (`\a`). Consider external buzzers for noisy environments.
 
 ---
 
-Happy driving, and stay alert!
-
+Happy driving, stay alert, and review your logs often!
